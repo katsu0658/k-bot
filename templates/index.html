@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ササメ Chat</title>
+    <link href="https://fonts.googleapis.com/css2?family=Kosugi+Maru&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+    <div class="app">
+        <header class="app-header">
+            <h1>ササメ</h1>
+        </header>
+
+        <main class="chat-window" id="chat-window">
+            <div class="msg msg-model">
+                <div class="bubble">
+                    ヤッホー！なんでも話してみ
+                </div>
+            </div>
+        </main>
+        <form class="composer" id="composer">
+            <input
+                type="text"
+                id="user-input"
+                placeholder="メッセージを入力してね"
+                autocomplete="off"
+            >
+            <button type="submit" id="send-btn">送信</button>
+        </form>
+    </div>
+</body>
+
+<script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
