@@ -3,6 +3,8 @@ const composer = document.getElementById("composer");
 const input = document.getElementById("user-input");
 const sendBtn = document.getElementById("send-btn");
 
+let isSubmitting = false;
+
 function addMessage(text, role) {
   const msg = document.createElement("div");
   msg.className = `msg msg-${role}`;
@@ -14,16 +16,28 @@ function addMessage(text, role) {
   msg.appendChild(bubble);
   chatWindow.appendChild(msg);
   chatWindow.scrollTop = chatWindow.scrollHeight;
+  return bubble;
+}
+
+function setFormDisabled(disabled) {
+  isSubmitting = disabled;
+  sendBtn.disabled = disabled;
+  input.disabled = disabled;
 }
 
 composer.addEventListener("submit", async (e) => {
   e.preventDefault();
+  
   const text = input.value.trim();
-  if (!text) return;
+  if (!text || isSubmitting) return;
 
+  // 1. ユーザーメッセージ描画とUIロック
   addMessage(text, "user");
   input.value = "";
-  sendBtn.disabled = true;
+  setFormDisabled(true);
+
+  // 2. ローディングバブルの挿入
+  const loadingBubble = addMessage("考え中...", "model loading");
 
   try {
     const res = await fetch("/api/chat", {
@@ -31,17 +45,26 @@ composer.addEventListener("submit", async (e) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message: text }),
     });
-    const data = await res.json();
+
+    let data = {};
+    const contentType = res.headers.get("content-type");
+    if (contentType && contentType.includes("application/json")) {
+      data = await res.json();
+    }
 
     if (!res.ok) {
-      addMessage(data.error || "エラーが発生したよ", "error");
+      loadingBubble.parentElement.className = "msg msg-error";
+      loadingBubble.textContent = data.error || `エラーが発生しました (${res.status})`;
     } else {
-      addMessage(data.reply, "model");
+      loadingBubble.textContent = data.reply;
+      loadingBubble.parentElement.classList.remove("loading");
     }
   } catch (err) {
-    addMessage("通信に失敗したよ。ネット環境を確認してね", "error");
+    loadingBubble.parentElement.className = "msg msg-error";
+    loadingBubble.textContent = "通信に失敗しました。ネットワーク状況を確認してください。";
   } finally {
-    sendBtn.disabled = false;
+    setFormDisabled(false);
     input.focus();
+    chatWindow.scrollTop = chatWindow.scrollHeight;
   }
 });
