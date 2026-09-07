@@ -23,92 +23,88 @@ SYSTEM_PROMPT = """
 """
 app = Flask(__name__)
 
-def load_history():
+def load_history(limit: int = 10):
     if not os.path.exists(HISTORY_FILE):
         return []
     
-    history = []
+    entries = []
     with open(HISTORY_FILE, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
-            if not line:
-                continue
-            entry = json.loads(line)
-            history.append(
-                types.Content(
-                    role=entry["role"],
-                    parts=[types.Part(text=entry["text"])]
-                )
+            if line:
+                entries.append(json.loads(line))
+
+    recent_entries = entries[-(limit * 2):]
+
+    history = []
+    for entry in recent_entries:
+        history.append(
+            types.Content(
+                role=entry["role"],
+                parts=[types.Part(text=entry["text"])]
             )
+        )
     return history
 
-def append_entry(role, text):
+def save_turn(user_text: str, model_text: str):
     with open(HISTORY_FILE, "a", encoding="utf-8") as f:
-        f.write(json.dumps({"role": role, "text": text}, ensure_ascii=False ) + "\n")
+        f.write(json.dumps({"role": "user", "text": user_text}, ensure_ascii=False) + "\n")
+        f.write(json.dumps({"role": "model", "text": model_text}, ensure_ascii=False) + "\n")
 
 
-
-def send_with_retry(chat, user_input, max_retries=3):
+def call_gemini_with_retry(history, user_input, max_retries=3):
+    """リクエストごとに履歴を含めたプロンプトを構築してステートレスに送信"""
+    contents = history + [
+        types.Content(role="user", parts=[types.Part(text=user_input)])
+    ]
+    
     for attempt in range(max_retries):
         try:
-            return chat.send_message(user_input)
-        except errors.ServerError as e:
+            response = client.models.generate_content(
+                model="gemini-3.5-flash-lite",
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT,
+                    temperature=0.7
+                )
+            )
+            return response.text
+        except errors.ServerError:
             if attempt < max_retries - 1:
-                wait = 2 ** attempt
-                print(f"(サーバー混雑中... {wait}秒待って再試行します)")
-                time.sleep(wait)
+                time.sleep(2 ** attempt)
             else:
                 raise
         except errors.ClientError as e:
-            if "RESOURCE_EXHAUSTED" in str(e):
-                print("本日は終了となります。")
-                raise
-            raise
-        
-chat = client.chats.create(model="gemini-3.5-flash-lite", 
-                           config=types.GenerateContentConfig(
-                               system_instruction=SYSTEM_PROMPT,
-                               temperature=0.7
-                           ),
-                           history=load_history()
-)
-
+            raise e
 @app.route("/")
 def index():
     return render_template("index.html")
 
 @app.route("/api/chat", methods=["POST"])
 def api_chat():
-    data = request.get_json()
+    data = request.get_json() or {}
     user_input = (data.get("message") or "").strip()
 
     if not user_input:
-        return jsonify({"error": "メッセージが空だよ"}), 400
+        return jsonify({"error": "メッセージが空です"}), 400
 
     try:
-        append_entry("user", user_input)
-        response = send_with_retry(chat,user_input)
-        append_entry("model", response.text)
-        return jsonify({"reply": response.text})
-    except RuntimeError as e:
-        return jsonify({"error": str(e)}), 429
+        current_history = load_history()
+        reply_text = call_gemini_with_retry(current_history, user_input)
+        
+        # 正常に取得できた場合のみ履歴を保存
+        save_turn(user_input, reply_text)
+        return jsonify({"reply": reply_text})
+
+    except errors.ClientError as e:
+        if "RESOURCE_EXHAUSTED" in str(e):
+            return jsonify({"error": "利用制限に達しました。しばらく待ってから再試行してください。"}), 429
+        return jsonify({"error": f"APIリクエストエラー: {str(e)}"}), 400
+    except errors.ServerError:
+        return jsonify({"error": "Geminiサーバーが一時的に混雑しています。"}), 503
     except Exception as e:
-        return jsonify({"error": "エラーが発生しました"}), 500
+        return jsonify({"error": "サーバー内部で予期せぬエラーが発生しました。"}), 500
 
 if __name__ == "__main__":
     app.run(debug=True)
 
-
-#    "while True:
- #           user_input = input("あなた： ")
-#           if user_input.lower() in ["exit", "quit", "終了"]:
- #               print("終了します。")
-  #              break
-#
- #           if not user_input.strip():
-  #              continue
-#
- #           append_entry("user", user_input)
-  #          response = send_with_retry(chat, user_input)
-   #         print(f"Gemini: {response.text}")
-    #        append_entry("model", response.text)
