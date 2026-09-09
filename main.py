@@ -1,7 +1,8 @@
 import os
 import json
 import time
-from flask import Flask, render_template, request, jsonify
+import uuid
+from flask import Flask, render_template, request, jsonify, session
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -10,7 +11,11 @@ from google.genai import errors
 
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-HISTORY_FILE = "history.jsonl"
+
+FLASK_SECRET_KEY = os.getenv("FLASK_SECRET_KEY")
+
+HISTORY_DIR = "histories"
+os.makedirs(HISTORY_DIR, exist_ok=True)
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
@@ -22,13 +27,20 @@ SYSTEM_PROMPT = """
 他人事という言葉は直接使ってはいけません。
 """
 app = Flask(__name__)
+app.secret_key = FLASK_SECRET_KEY
 
-def load_history(limit: int = 10):
-    if not os.path.exists(HISTORY_FILE):
+def get_session_file(session_id: str)-> str:
+    if not session_id or not re.fullmatch(r"[a-f0-9]{32}", session_id):
+        raise ValueError("不正なセッションIDです。")
+    return os.path.join(HISTORY_DIR, f"{session_id}.jsonl")
+
+def load_history(session_id: str, limit: int = 10):
+    filepath = get_session_file(session_id)
+    if not os.path.exists(filepath):
         return []
     
     entries = []
-    with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+    with open(filepath, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if line:
@@ -46,14 +58,14 @@ def load_history(limit: int = 10):
         )
     return history
 
-def save_turn(user_text: str, model_text: str):
-    with open(HISTORY_FILE, "a", encoding="utf-8") as f:
+def save_turn(user_text: str, model_text: str, session_id: str):
+    filepath = get_session_file(session_id)
+    with open(filepath, "a", encoding="utf-8") as f:
         f.write(json.dumps({"role": "user", "text": user_text}, ensure_ascii=False) + "\n")
         f.write(json.dumps({"role": "model", "text": model_text}, ensure_ascii=False) + "\n")
 
 
 def call_gemini_with_retry(history, user_input, max_retries=3):
-    """リクエストごとに履歴を含めたプロンプトを構築してステートレスに送信"""
     contents = history + [
         types.Content(role="user", parts=[types.Part(text=user_input)])
     ]
