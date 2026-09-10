@@ -2,4 +2,5 @@
 .env
 .txt
 __pycache__/
+histories/
 history.jsonl
