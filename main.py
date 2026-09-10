@@ -112,11 +112,10 @@ def api_chat():
         return jsonify({"error": "メッセージが空です"}), 400
 
     try:
-        current_history = load_history()
+        current_history = load_history(session_id)
         reply_text = call_gemini_with_retry(current_history, user_input)
         
-        # 正常に取得できた場合のみ履歴を保存
-        save_turn(user_input, reply_text)
+        save_turn(user_input, reply_text, session_id)
         return jsonify({"reply": reply_text})
 
     except errors.ClientError as e:
