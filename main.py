@@ -88,14 +88,16 @@ def call_gemini_with_retry(history, user_input, max_retries=3):
                 raise
         except errors.ClientError as e:
             raise e
-@app.route("/")
-def index():
-    return render_template("index.html")
 
 @app.before_request
 def ensure_session():
     if "session_id" not in session:
         session["session_id"] = uuid.uuid4().hex
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
 
 @app.route("/api/chat", methods=["POST"])
 def api_chat():
